@@ -1,0 +1,117 @@
+# 3wclaw — Default Configuration
+# Override via environment variables or custom config file
+
+app:
+  name: "3wclaw"
+  version: "0.1.0"
+  log_level: "info"
+
+# Workflow states — adapted to PM-driven flow
+# concept: PM describes the idea/concept
+# spec: PM writes detailed specification
+# ready: spec approved, ready for development
+# doing: developer working on implementation
+# review: MR submitted, under review
+# done: merged and deployed
+# Estados reais do GitLab (workflow::*)
+# conceito: PM registra ideia
+# especificacao: PM escreve user stories e requisitos
+# revisao-spec: Arquiteto + PM revisando spec, Arquiteto escreve SDD
+# ready-for-dev: Spec + SDD aprovados, pipeline pode iniciar
+# in-dev: Em desenvolvimento (agente ou dev manual)
+# in-review: AI review + revisao humana (2 devs + 1 maintainer)
+# triagem: Agente de triagem analisando issue de cliente
+# done: Concluido
+workflow:
+  states:
+    - conceito
+    - especificacao
+    - revisao-spec
+    - ready-for-dev
+    - in-dev
+    - in-review
+    - triagem
+    - done
+  transitions:
+    triagem:
+      - conceito      # issue de cliente vira conceito
+      - in-dev        # bug vai direto pra dev
+      - done          # duvida respondida, fecha
+    conceito:
+      - especificacao
+    especificacao:
+      - revisao-spec
+      - conceito      # volta se precisa repensar
+    revisao-spec:
+      - ready-for-dev
+      - especificacao  # volta se spec precisa ajuste
+    ready-for-dev:
+      - in-dev
+    in-dev:
+      - in-review      # MR aberta
+      - ready-for-dev  # requirements mudaram
+    in-review:
+      - done           # aprovado e merged
+      - in-dev         # precisa de changes
+  initial_state: triagem
+  done_states:
+    - done
+  # Label que dispara review automatico do Pedroclaw
+  review_trigger_label: "workflow::in-review"
+
+# Labels strategy (~15 core labels)
+labels:
+  # Natureza
+  nature:
+    - "type::feature"
+    - "type::bugfix"
+    - "type::refactor"
+    - "type::docs"
+    - "type::chore"
+  # Prioridade
+  priority:
+    - "priority::critical"
+    - "priority::high"
+    - "priority::medium"
+    - "priority::low"
+  # App (dinâmico — lido do registry)
+  app_prefix: "app::"
+  # Workflow state
+  state_prefix: "workflow::"
+
+# Review engine configuration
+review:
+  engine: "builtin"  # builtin | coderabbit | pr_agent
+  builtin:
+    model: "claude-sonnet-4-6"
+    max_diff_lines: 1500
+    temperature: 0.1
+    system_prompt: |
+      You are a senior code reviewer for a legal tech SaaS platform.
+      Focus on: correctness, security (especially data handling),
+      performance, and adherence to project conventions.
+      Be concise. Flag only actionable issues.
+  coderabbit:
+    # When using CodeRabbit, 3wclaw handles workflow/triage
+    # and delegates code review to CodeRabbit via its native integration
+    config_path: ".coderabbit.yaml"
+  pr_agent:
+    # Self-hosted PR-Agent with own LLM keys
+    model: "claude-sonnet-4-6"
+
+# Triage agent
+triage:
+  enabled: true
+  model: "claude-sonnet-4-6"
+  auto_label: true
+  auto_assign: false
+  kb_lookup: false
+  kb_top_k: 5
+
+# Knowledge base
+knowledge_base:
+  embedding_model: "text-embedding-3-small"
+  chunk_size: 512
+  chunk_overlap: 50
+  similarity_threshold: 0.75
+  sync_interval_hours: 6

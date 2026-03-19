@@ -1,0 +1,70 @@
+services:
+  api:
+    build: .
+    ports:
+      - "8000:8000"
+    env_file: .env
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://pedroclaw:pedroclaw@db:5432/pedroclaw
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: uvicorn pedroclaw.main:app --host 0.0.0.0 --port 8000 --reload
+
+  worker:
+    build: .
+    env_file: .env
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://pedroclaw:pedroclaw@db:5432/pedroclaw
+      - REDIS_URL=redis://redis:6379/0
+      - FRONTEND_PATH=/workspace/frontend
+    volumes:
+      - ${FRONTEND_PATH:-/Users/pedro.escobar/workspace/development/soft-suite/marketplace/core/soft-suite-platform-frontend}:/workspace/frontend:ro
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: celery -A pedroclaw.tasks.worker:celery_app worker --loglevel=info --concurrency=2
+
+  beat:
+    build: .
+    env_file: .env
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      redis:
+        condition: service_healthy
+    command: celery -A pedroclaw.tasks.worker:celery_app beat --loglevel=info
+
+  db:
+    image: pgvector/pgvector:pg17
+    environment:
+      POSTGRES_USER: pedroclaw
+      POSTGRES_PASSWORD: pedroclaw
+      POSTGRES_DB: pedroclaw
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pedroclaw"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  pgdata:
