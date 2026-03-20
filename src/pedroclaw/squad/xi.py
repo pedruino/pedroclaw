@@ -13,12 +13,21 @@ import structlog
 
 from pedroclaw.agents.engine import InlineComment, ReviewResult
 from pedroclaw.config import settings
+from pedroclaw.observability import create_trace, litellm_metadata
 from pedroclaw.squad.skills import format_skills_context, get_skills_for_files
 
 logger = structlog.get_logger()
 
 
-async def _call_llm(system: str, user: str, model: str | None = None, max_retries: int = 3) -> str:
+async def _call_llm(
+    system: str,
+    user: str,
+    model: str | None = None,
+    max_retries: int = 3,
+    trace_id: str | None = None,
+    parent_observation_id: str | None = None,
+    generation_name: str = "llm_call",
+) -> str:
     """Chamada LLM via LiteLLM com retry pra rate limit."""
     import asyncio
 
@@ -35,6 +44,7 @@ async def _call_llm(system: str, user: str, model: str | None = None, max_retrie
                     {"role": "system", "content": system},
                     {"role": "user", "content": user},
                 ],
+                metadata=litellm_metadata(trace_id, parent_observation_id, generation_name),
             )
             logger.info(
                 "llm_call",
@@ -110,23 +120,28 @@ MRs simples (rename, i18n, config) nao precisam de especialistas.
 """
 
 
-async def aratu_analyze(diff: str, mr_info: dict[str, Any]) -> dict[str, Any]:
+async def aratu_analyze(diff: str, mr_info: dict[str, Any], trace_id: str | None = None) -> dict[str, Any]:
     """Aratu analisa o diff e identifica areas de risco."""
     title = mr_info.get("title", "")
     description = mr_info.get("description", "") or ""
 
     user_prompt = f"## MR: {title}\n{description[:300]}\n\n## Diff\n```diff\n{diff[:8000]}\n```"
-    response = await _call_llm(ARATU_SYSTEM, user_prompt)
+    response = await _call_llm(
+        ARATU_SYSTEM, user_prompt,
+        trace_id=trace_id, generation_name="aratu",
+    )
 
     json_str = response
     if "```json" in response:
         json_str = response.split("```json")[1].split("```")[0].strip()
 
     try:
-        return json.loads(json_str)
+        result = json.loads(json_str)
     except json.JSONDecodeError:
         logger.warning("aratu_parse_failed")
-        return {"risk_areas": [], "specialists_needed": [], "overall_risk": "medium"}
+        result = {"risk_areas": [], "specialists_needed": [], "overall_risk": "medium"}
+
+    return result
 
 
 # ============================================================
@@ -155,11 +170,15 @@ Regras para comentar:
 """
 
 
-async def coral_research(diff: str, skills_context: str) -> list[dict[str, Any]]:
+async def coral_research(diff: str, skills_context: str, trace_id: str | None = None) -> list[dict[str, Any]]:
     """Coral pesquisa violacoes usando as regras do projeto."""
     user_prompt = f"## Regras do Projeto\n{skills_context}\n\n## Diff\n```diff\n{diff}\n```"
-    response = await _call_llm(CORAL_SYSTEM, user_prompt)
-    return _parse_comments_json(response)
+    response = await _call_llm(
+        CORAL_SYSTEM, user_prompt,
+        trace_id=trace_id, generation_name="coral",
+    )
+    findings = _parse_comments_json(response)
+    return findings
 
 
 # ============================================================
@@ -194,14 +213,20 @@ Se todos forem falsos positivos, retorne array vazio: []
 """
 
 
-async def nautilo_validate(diff: str, coral_findings: list[dict[str, Any]]) -> list[dict[str, Any]]:
+async def nautilo_validate(
+    diff: str, coral_findings: list[dict[str, Any]], trace_id: str | None = None
+) -> list[dict[str, Any]]:
     """Nautilo valida os achados da Coral, removendo falsos positivos."""
     user_prompt = (
         f"## Achados da Coral\n```json\n{json.dumps(coral_findings, ensure_ascii=False, indent=2)}\n```\n\n"
         f"## Diff\n```diff\n{diff}\n```"
     )
-    response = await _call_llm(NAUTILO_SYSTEM, user_prompt)
-    return _parse_comments_json(response)
+    response = await _call_llm(
+        NAUTILO_SYSTEM, user_prompt,
+        trace_id=trace_id, generation_name="nautilo",
+    )
+    validated = _parse_comments_json(response)
+    return validated
 
 
 # ============================================================
@@ -234,14 +259,20 @@ Seja criterioso: so adicione se for realmente relevante.
 """
 
 
-async def baiacu_challenge(diff: str, validated_findings: list[dict[str, Any]]) -> list[dict[str, Any]]:
+async def baiacu_challenge(
+    diff: str, validated_findings: list[dict[str, Any]], trace_id: str | None = None
+) -> list[dict[str, Any]]:
     """Baiacu desafia achados e busca pontos cegos."""
     user_prompt = (
         f"## Achados ja validados\n```json\n{json.dumps(validated_findings, ensure_ascii=False, indent=2)}\n```\n\n"
         f"## Diff\n```diff\n{diff}\n```"
     )
-    response = await _call_llm(BAIACU_SYSTEM, user_prompt)
-    return _parse_comments_json(response)
+    response = await _call_llm(
+        BAIACU_SYSTEM, user_prompt,
+        trace_id=trace_id, generation_name="baiacu",
+    )
+    findings = _parse_comments_json(response)
+    return findings
 
 
 # ============================================================
@@ -272,15 +303,21 @@ SPECIALIST_NAMES = {
 }
 
 
-async def call_specialist(specialty: str, diff: str, skill_content: str) -> list[dict[str, Any]]:
+async def call_specialist(
+    specialty: str, diff: str, skill_content: str, trace_id: str | None = None
+) -> list[dict[str, Any]]:
     """Chama um agente especialista."""
     system = SPECIALIST_SYSTEM.format(specialty=SPECIALIST_NAMES.get(specialty, specialty))
     if skill_content:
         system += f"\n\nRegras da sua especialidade:\n{skill_content}"
 
     user_prompt = f"## Diff\n```diff\n{diff}\n```"
-    response = await _call_llm(system, user_prompt)
-    return _parse_comments_json(response)
+    response = await _call_llm(
+        system, user_prompt,
+        trace_id=trace_id, generation_name=f"specialist_{specialty}",
+    )
+    findings = _parse_comments_json(response)
+    return findings
 
 
 # ============================================================
@@ -291,7 +328,11 @@ async def squad_review(diff: str, mr_info: dict[str, Any], existing_comments: li
     """Executa o review completo do Squad XI."""
     import asyncio
 
-    logger.info("squad_xi_start", mr_title=mr_info.get("title"))
+    mr_title = mr_info.get("title", "")
+    mr_id = mr_info.get("iid") or mr_info.get("id")
+    logger.info("squad_xi_start", mr_title=mr_title)
+
+    trace_id = create_trace("squad-review")
 
     # 0. Montar contexto de comentarios existentes pra evitar duplicatas
     existing_context = ""
@@ -302,7 +343,7 @@ async def squad_review(diff: str, mr_info: dict[str, Any], existing_comments: li
         )
 
     # 1. Aratu analisa e identifica riscos
-    analysis = await aratu_analyze(diff, mr_info)
+    analysis = await aratu_analyze(diff, mr_info, trace_id=trace_id)
     overall_risk = analysis.get("overall_risk", "medium")
     specialists_needed = analysis.get("specialists_needed", [])
 
@@ -318,15 +359,15 @@ async def squad_review(diff: str, mr_info: dict[str, Any], existing_comments: li
     skills_context = format_skills_context(skills)
 
     # 3. Coral pesquisa violacoes (com skills + comentarios existentes como contexto)
-    coral_findings = await coral_research(diff, skills_context + existing_context)
+    coral_findings = await coral_research(diff, skills_context + existing_context, trace_id=trace_id)
     logger.info("coral_findings", count=len(coral_findings))
 
     # 4. Nautilo valida (remove falsos positivos)
-    validated = await nautilo_validate(diff, coral_findings)
+    validated = await nautilo_validate(diff, coral_findings, trace_id=trace_id)
     logger.info("nautilo_validated", original=len(coral_findings), validated=len(validated))
 
     # 5. Baiacu desafia (busca pontos cegos)
-    baiacu_findings = await baiacu_challenge(diff, validated)
+    baiacu_findings = await baiacu_challenge(diff, validated, trace_id=trace_id)
     logger.info("baiacu_findings", count=len(baiacu_findings))
 
     # 6. Se Aratu pediu especialistas, chama em paralelo
@@ -336,7 +377,7 @@ async def squad_review(diff: str, mr_info: dict[str, Any], existing_comments: li
         for spec in specialists_needed:
             if spec in SPECIALIST_NAMES:
                 skill_content = skills.get(spec, "")
-                specialist_tasks.append(call_specialist(spec, diff, skill_content))
+                specialist_tasks.append(call_specialist(spec, diff, skill_content, trace_id=trace_id))
 
         if specialist_tasks:
             results = await asyncio.gather(*specialist_tasks)
@@ -371,6 +412,7 @@ async def squad_review(diff: str, mr_info: dict[str, Any], existing_comments: li
             )
 
     approved = len(comments) == 0
+
     return ReviewResult(inline_comments=comments, approved=approved, engine="squad-xi")
 
 

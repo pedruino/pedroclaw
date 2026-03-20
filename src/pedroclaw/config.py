@@ -64,5 +64,12 @@ class Settings(BaseSettings):
     # Knowledge base config from YAML
     knowledge_base: dict[str, Any] = Field(default_factory=lambda: _yaml.get("knowledge_base", {}))
 
+    # Langfuse observability
+    langfuse_enabled: bool = False
+    langfuse_public_key: str = ""
+    langfuse_secret_key: str = ""
+    langfuse_host: str = "http://localhost:3000"
+    langfuse_otel_host: str = "http://localhost:3000"
+
 
 settings = Settings()

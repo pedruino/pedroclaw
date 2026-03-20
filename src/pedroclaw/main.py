@@ -12,6 +12,7 @@ from fastapi.staticfiles import StaticFiles
 from pedroclaw.config import settings
 from pedroclaw.dashboard.router import router as dashboard_router
 from pedroclaw.knowledge.store import init_db
+from pedroclaw.observability import setup_langfuse
 from pedroclaw.webhooks.router import router as webhooks_router
 
 logger = structlog.get_logger()
@@ -21,6 +22,7 @@ logger = structlog.get_logger()
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     logger.info("Pedroclaw starting", version="0.1.0", review_engine=settings.review_engine)
     await init_db()
+    setup_langfuse()
     yield
     logger.info("Pedroclaw shutting down")
 

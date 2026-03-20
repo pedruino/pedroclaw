@@ -6,6 +6,7 @@ import structlog
 
 from pedroclaw.config import settings
 from pedroclaw.knowledge.retrieval import kb_retrieval
+from pedroclaw.observability import create_trace, litellm_metadata
 
 logger = structlog.get_logger()
 
@@ -39,6 +40,9 @@ class TriageAgent:
         title = issue.get("title", "")
         description = issue.get("description", "") or ""
         labels = issue.get("labels", [])
+        issue_id = issue.get("iid") or issue.get("id")
+
+        trace_id = create_trace("triage")
 
         # Step 1: KB lookup for similar issues
         similar: list[dict[str, Any]] = []
@@ -66,6 +70,7 @@ class TriageAgent:
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
             ],
+            metadata=litellm_metadata(trace_id, None, "triage_classify"),
         )
 
         content = response.choices[0].message.content or ""
@@ -76,7 +81,8 @@ class TriageAgent:
             output_tokens=response.usage.completion_tokens if response.usage else 0,
         )
 
-        return self._parse_response(content, similar)
+        result = self._parse_response(content, similar)
+        return result
 
     def _build_system_prompt(self) -> str:
         nature_labels = settings.labels.get("nature", [])

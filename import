@@ -1,0 +1,30 @@
+[?25l[0G[+] create 2/2
+[?25l[0G[+] create 2/2
+ [32m✔[0m Container pedroclaw-redis-1 [32mRunning[0m                                                                                                                                                                                                [34m0.0s[0m
+ [32m✔[0m Container pedroclaw-db-1    [32mRunning[0m                                                                                                                                                                                                [34m0.0s[0m
+[?25h [32m✔[0m Container pedroclaw-redis-1 [32mRunning[0m                                                                                                                                                                                                [34m0.0s[0m
+ [32m✔[0m Container pedroclaw-db-1    [32mRunning[0m                                                                                                                                                                                                [34m0.0s[0m
+[?25h[?25l[3A[0G[+] start 2/2
+[?25l[3A[0G[+] start 2/2
+ [32m✔[0m Container pedroclaw-redis-1 [32mRunning[0m                                                                                                                                                                                                [34m0.0s[0m
+ [32m✔[0m Container pedroclaw-db-1    [32mRunning[0m                                                                                                                                                                                                [34m0.0s[0m
+[?25h[?25l[3A[0G[+]  2/2
+ [32m✔[0m Container pedroclaw-redis-1 [32mRunning[0m                                                                                                                                                                                                [34m0.0s[0m
+ [32m✔[0m Container pedroclaw-db-1    [32mRunning[0m                                                                                                                                                                                                [34m0.0s[0m
+[?25h [32m✔[0m Container pedroclaw-redis-1 [32mRunning[0m                                                                                                                                                                                                [34m0.0s[0m
+ [32m✔[0m Container pedroclaw-db-1    [32mRunning[0m                                                                                                                                                                                                [34m0.0s[0m
+[?25h[?25l[3A[0G[+]  2/2
+ [32m✔[0m Container pedroclaw-redis-1 [32mRunning[0m                                                                                                                                                                                                [34m0.0s[0m
+ [32m✔[0m Container pedroclaw-db-1    [32mRunning[0m                                                                                                                                                                                                [34m0.0s[0m
+[?25hContainer pedroclaw-db-1 [32mWaiting[0m 
+Container pedroclaw-db-1 [32mWaiting[0m 
+Container pedroclaw-redis-1 [32mWaiting[0m 
+Container pedroclaw-redis-1 [32mWaiting[0m 
+Container pedroclaw-db-1 [32mHealthy[0m 
+Container pedroclaw-db-1 [32mHealthy[0m 
+Container pedroclaw-redis-1 [32mHealthy[0m 
+Container pedroclaw-worker-run-ea84856cc1af [32mCreating[0m 
+Container pedroclaw-redis-1 [32mHealthy[0m 
+Container pedroclaw-worker-run-ea84856cc1af [32mCreating[0m 
+Container pedroclaw-worker-run-ea84856cc1af [32mCreated[0m 
+Container pedroclaw-worker-run-ea84856cc1af [32mCreated[0m 

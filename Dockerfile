@@ -11,9 +11,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY pyproject.toml .
 COPY src/ src/
 COPY config/ config/
+COPY tests/ tests/
 
-# Install package
-RUN pip install --no-cache-dir .
+# Install package with dev dependencies
+RUN pip install --no-cache-dir ".[dev]"
 
 EXPOSE 8000
 
