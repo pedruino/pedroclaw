@@ -11,11 +11,9 @@ def _setup_observability() -> None:
 
     No-op se LANGFUSE_ENABLED != true ou se as env vars não estiverem configuradas.
     """
-    import litellm
-
     from pedroclaw.observability import get_langfuse, setup_langfuse
 
     setup_langfuse()
 
     enabled = get_langfuse()
-    print(f"\n[langfuse] enabled={enabled}, otel_host={os.environ.get('LANGFUSE_OTEL_HOST', 'n/a')}, callbacks={litellm.callbacks}")
+    print(f"\n[langfuse] enabled={enabled}, otel_host={os.environ.get('LANGFUSE_OTEL_HOST', 'n/a')}")

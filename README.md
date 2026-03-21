@@ -1,22 +1,29 @@
 # Pedroclaw 🦀
 
-AI-powered GitLab pipeline automation with pluggable review engines and knowledge base.
+AI-powered GitLab pipeline automation with **AgentOS** integration, pluggable review engines, and knowledge base.
 
-Similar to CodeRabbit, but adapted to PM-driven workflows with issue triage, workflow state management, and a knowledge base that learns from past issues.
+Built with [Agno Framework](https://agno.com) - the runtime for agentic software at scale. Similar to CodeRabbit, but adapted to PM-driven workflows with issue triage, workflow state management, and a knowledge base that learns from past issues.
 
 ## Features
 
+### 🤖 **AgentOS Integration**
+- **AgentOS Runtime** - Production-ready runtime for agents with web UI
+- **Session Management** - Persistent conversation history and context
+- **Control Plane** - Monitor and manage agents in real-time
+- **Streaming API** - Real-time responses with Server-Sent Events
+
+### 🦀 **Pedroclaw Core**
 - **Squad XI** multi-agent review (Aratu, Coral, Nautilo, Baiacu)
 - **Pluggable Review Engine** builtin (Squad XI) ou CodeRabbit
 - **Issue Triage Agent** classifica issues, sugere labels, busca issues similares
-- **Knowledge Base** RAG sobre issues/MRs passados usando pgvector
+- **Knowledge Base** RAG sobre issues/MRs passados usando pgvector + Agno Knowledge
 - **Interactive Commands** `@pedroclaw review`, `@pedroclaw triage` via GitLab comments
 - **Skills em runtime** carrega regras do projeto frontend automaticamente
 - **LLM Agnostic** Claude, GPT, DeepSeek, Gemini, ou modelos locais via config
 
 ## Stack
 
-Python 3.12 · FastAPI · Celery · Redis · PostgreSQL/pgvector · LiteLLM
+Python 3.12 · FastAPI · Agno AgentOS · Celery · Redis · PostgreSQL/pgvector · LiteLLM
 
 ## Quick Start
 
@@ -35,15 +42,15 @@ GITLAB_TOKEN=glpat-xxxx
 GITLAB_WEBHOOK_SECRET=pick-a-secret
 
 # LLM (any provider via LiteLLM)
-LLM_MODEL=claude-sonnet-4-6        # or: deepseek/deepseek-chat, gpt-4o, gemini/gemini-2.5-pro
-LLM_API_KEY=sk-ant-xxxx
+LLM_REVIEW_MODEL=claude-sonnet-4-6        # or: deepseek/deepseek-chat, gpt-4o, gemini/gemini-2.5-pro
+LLM_REVIEW_API_KEY=sk-ant-xxxx
+
+# Knowledge Base embedding
+LLM_KB_MODEL=text-embedding-3-small
+LLM_KB_API_KEY=sk-xxxx           # OpenAI key (R$ 0.11/1M tokens)
 
 # Review engine
 REVIEW_ENGINE=builtin               # builtin | coderabbit | pr_agent
-
-# Embedding (for knowledge base)
-EMBEDDING_MODEL=text-embedding-3-small
-EMBEDDING_API_KEY=sk-xxxx           # OpenAI key (R$ 0.11/1M tokens)
 
 # DB and Redis — no changes needed if using docker-compose
 DATABASE_URL=postgresql+asyncpg://pedroclaw:pedroclaw@localhost:5432/pedroclaw
@@ -61,11 +68,45 @@ This starts: API (port 8000) + Celery Worker + Celery Beat + PostgreSQL/pgvector
 ### 3. Verify
 
 ```bash
+# Health check
 curl http://localhost:8000/health
-# → {"status":"ok","version":"0.1.0"}
+# → {"status":"ok","instantiated_at":"2026-03-20T22:56:04.963121Z"}
+
+# AgentOS API
+curl http://localhost:8000/agents
+# → [{"id":"triage","name":"Triage","model":{"name":"LiteLLM",...}}]
+
+# Pedroclaw dashboard
+curl http://localhost:8000/dashboard/stats
+# → {"total_reviews":0,"completed":0,"failed":0,...}
+
+# Full API documentation
+# Open http://localhost:8000/docs in your browser
 ```
 
-### 4. Configure GitLab Webhook
+### 4. Explore AgentOS
+
+The AgentOS integration provides a powerful web interface:
+
+```bash
+# List available agents
+curl http://localhost:8000/agents
+
+# Run the Triage Agent via AgentOS API
+curl -X POST http://localhost:8000/agents/triage/runs \
+  -F "message=Login SSO não funciona, erro 500 para usuários @empresa.com"
+
+# Monitor agent runs and sessions
+curl http://localhost:8000/agents/triage/runs
+```
+
+**AgentOS Features:**
+- 🌐 **Web UI**: Visit `http://localhost:8000/docs` for interactive API
+- 💬 **Session Management**: Persistent conversation history
+- 📊 **Real-time Monitoring**: Track agent performance and runs
+- 🔄 **Streaming Responses**: Real-time agent outputs via SSE
+
+### 5. Configure GitLab Webhook
 
 In your GitLab project: **Settings > Webhooks > Add webhook**
 
@@ -77,7 +118,7 @@ In your GitLab project: **Settings > Webhooks > Add webhook**
 
 > For local testing, use [ngrok](https://ngrok.com): `ngrok http 8000`
 
-### 5. Test locally (without GitLab)
+### 6. Test locally (without GitLab)
 
 ```bash
 # Simulate an issue opened
@@ -91,6 +132,10 @@ curl -X POST http://localhost:8000/webhooks/gitlab \
   -H "Content-Type: application/json" \
   -H "X-Gitlab-Event: Merge Request Hook" \
   -d '{"object_attributes":{"action":"open","iid":1},"project":{"id":123,"path_with_namespace":"test/repo"}}'
+
+# Test AgentOS directly
+curl -X POST http://localhost:8000/agents/triage/runs \
+  -F "message=Test issue classification"
 ```
 
 ## Architecture
@@ -99,7 +144,7 @@ curl -X POST http://localhost:8000/webhooks/gitlab \
 
 ```mermaid
 flowchart TD
-    GL[GitLab Webhook] --> API[FastAPI receiver]
+    GL[GitLab Webhook] --> API[FastAPI + AgentOS]
     API --> Redis[(Redis queue)]
     Redis --> Worker[Celery Worker]
 
@@ -107,13 +152,13 @@ flowchart TD
     Worker --> Review{MR com<br/>workflow::in-review?}
     Worker --> KB[KB Sync]
 
-    Triage -->|Sim| TriageAgent[Triage Agent]
+    Triage -->|Sim| TriageAgent[Triage Agent<br/>via Agno + AgentOS]
     TriageAgent --> Labels[Aplica labels<br/>no GitLab]
 
     Review -->|Sim| Engine{Engine?}
     Review -->|Nao| Skip[Ignora]
 
-    Engine -->|builtin| Squad[Squad XI]
+    Engine -->|builtin| Squad[Squad XI<br/>via Agno Agents]
     Engine -->|coderabbit| CR[CodeRabbit SaaS]
 
     Squad --> Aratu[🦀 Aratu<br/>Captain]
@@ -128,7 +173,13 @@ flowchart TD
     RiskCheck -->|Nao| Post[Posta comentarios<br/>inline no GitLab]
     Specialists --> Post
 
-    KB --> pgvector[(pgvector)]
+    KB --> AgnoKB[Agno Knowledge<br/>PgVector]
+
+    %% AgentOS Layer
+    API -.-> AgentOS[AgentOS Runtime]
+    AgentOS -.-> WebUI[Web Interface]
+    AgentOS -.-> Sessions[Session Management]
+    AgentOS -.-> Monitor[Real-time Monitoring]
 ```
 
 ### Diagrama de sequencia: Review de MR
@@ -295,18 +346,98 @@ All config lives in `config/default.yaml`. Key sections:
 ## Development
 
 ```bash
-# Install dev dependencies
-pip install -e ".[dev]"
+# Install with UV (recommended)
+make install
+# or: uv pip install -e ".[dev]"
 
 # Run tests
-pytest
+make test
+# or: uv run pytest
 
-# Lint
-ruff check src/
+# Lint and format
+make lint
+make format
+# or: uv run ruff check src/
+#      uv run ruff format src/
 
 # Type check
-mypy src/
+make type-check
+# or: uv run mypy src/
+
+# Local development server
+uvicorn pedroclaw.main:app --reload
 ```
+
+### 🚀 UV Integration
+
+This project uses [UV](https://docs.astral.sh/uv/) for fast dependency management:
+
+```bash
+# Install UV (if not already installed)
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# Install all dependencies
+uv pip install ".[dev]"
+
+# Run commands with UV
+uv run python -m pytest
+uv run ruff check src/
+uv run mypy src/
+```
+
+## 🤖 AgentOS API Reference
+
+The AgentOS integration exposes a powerful REST API for agent interaction:
+
+### Core Endpoints
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/agents` | GET | List all available agents |
+| `/agents/{agent_id}` | GET | Get agent details and configuration |
+| `/agents/{agent_id}/runs` | POST | Execute an agent with input |
+| `/agents/{agent_id}/runs/{run_id}` | GET | Get run details and results |
+| `/agents/{agent_id}/runs/{run_id}/cancel` | POST | Cancel a running agent |
+
+### Example Usage
+
+```bash
+# List agents
+curl http://localhost:8000/agents
+
+# Run Triage Agent
+curl -X POST http://localhost:8000/agents/triage/runs \
+  -F "message=Login SSO não funciona" \
+  -F "user_id=user123"
+
+# Stream responses in real-time
+curl -X POST http://localhost:8000/agents/triage/runs \
+  -F "message=Test message" \
+  --no-buffer
+```
+
+### Session Management
+
+AgentOS automatically manages conversation sessions:
+
+```bash
+# Continue a conversation
+curl -X POST http://localhost:8000/agents/triage/runs \
+  -F "message=Follow-up question" \
+  -F "session_id=e74b69b6-3a06-44ad-8be7-28ad1a1d1e13"
+```
+
+### Monitoring
+
+```bash
+# Get run history
+curl http://localhost:8000/agents/triage/runs
+
+# Get system health
+curl http://localhost:8000/health
+```
+
+**Full API Documentation:** Visit `http://localhost:8000/docs` for interactive OpenAPI docs.
 
 ## Cost Estimate
 

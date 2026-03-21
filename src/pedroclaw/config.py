@@ -73,3 +73,15 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+
+def agentos_database_url() -> str:
+    """SQLAlchemy URL with a sync driver for Agno ``PostgresDb`` (AgentOS workflows).
+
+    The app uses asyncpg for FastAPI; Agno's workflow DB adapter expects a sync dialect
+    (``psycopg2`` is already a project dependency).
+    """
+    url = settings.database_url
+    if url.startswith("postgresql+asyncpg://"):
+        return url.replace("postgresql+asyncpg://", "postgresql+psycopg2://", 1)
+    return url

@@ -1,6 +1,6 @@
 """Tests for webhook endpoint."""
 
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -14,13 +14,17 @@ def client() -> TestClient:
 
 
 class TestWebhooks:
-    def test_health(self, client: TestClient) -> None:
+    @patch("pedroclaw.webhooks.router.settings")
+    def test_health(self, mock_settings: MagicMock, client: TestClient) -> None:
+        mock_settings.gitlab_webhook_secret = "test-token"
         response = client.get("/health")
         assert response.status_code == 200
         assert response.json()["status"] == "ok"
 
     @patch("pedroclaw.webhooks.handlers.task_triage_issue")
-    def test_issue_open_triggers_triage(self, mock_triage: None, client: TestClient) -> None:
+    @patch("pedroclaw.webhooks.router.settings")
+    def test_issue_open_triggers_triage(self, mock_settings: MagicMock, mock_triage: None, client: TestClient) -> None:
+        mock_settings.gitlab_webhook_secret = "test-token"
         payload = {
             "object_kind": "issue",
             "object_attributes": {"action": "open", "iid": 42},
@@ -29,13 +33,15 @@ class TestWebhooks:
         response = client.post(
             "/webhooks/gitlab",
             json=payload,
-            headers={"X-Gitlab-Event": "Issue Hook"},
+            headers={"X-Gitlab-Event": "Issue Hook", "X-Gitlab-Token": "test-token"},
         )
         assert response.status_code == 200
         assert response.json()["status"] == "accepted"
 
     @patch("pedroclaw.webhooks.handlers.task_review_mr")
-    def test_mr_open_triggers_review(self, mock_review: None, client: TestClient) -> None:
+    @patch("pedroclaw.webhooks.router.settings")
+    def test_mr_open_triggers_review(self, mock_settings: MagicMock, mock_review: None, client: TestClient) -> None:
+        mock_settings.gitlab_webhook_secret = "test-token"
         payload = {
             "object_kind": "merge_request",
             "object_attributes": {"action": "open", "iid": 99},
@@ -44,16 +50,18 @@ class TestWebhooks:
         response = client.post(
             "/webhooks/gitlab",
             json=payload,
-            headers={"X-Gitlab-Event": "Merge Request Hook"},
+            headers={"X-Gitlab-Event": "Merge Request Hook", "X-Gitlab-Token": "test-token"},
         )
         assert response.status_code == 200
         assert response.json()["status"] == "accepted"
 
-    def test_unknown_event_ignored(self, client: TestClient) -> None:
+    @patch("pedroclaw.webhooks.router.settings")
+    def test_unknown_event_ignored(self, mock_settings: MagicMock, client: TestClient) -> None:
+        mock_settings.gitlab_webhook_secret = "test-token"
         response = client.post(
             "/webhooks/gitlab",
             json={"object_kind": "pipeline"},
-            headers={"X-Gitlab-Event": "Pipeline Hook"},
+            headers={"X-Gitlab-Event": "Pipeline Hook", "X-Gitlab-Token": "test-token"},
         )
         assert response.status_code == 200
         assert response.json()["status"] == "ignored"

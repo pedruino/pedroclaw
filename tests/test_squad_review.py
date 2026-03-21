@@ -12,11 +12,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from pedroclaw.agents.engine import ReviewResult
+from pedroclaw.agents.models import AratuAnalysis, FindingsList
 from pedroclaw.agents.triage import TriageAgent, TriageResult
 from pedroclaw.squad.xi import (
     _deduplicate_findings,
     _extract_files_from_diff,
-    _parse_comments_json,
     aratu_analyze,
     baiacu_challenge,
     coral_research,
@@ -67,18 +67,6 @@ class TestHelpers:
         files = _extract_files_from_diff(SAMPLE_DIFF)
         assert files == ["src/app/users/page.tsx"]
 
-    def test_parse_comments_json_valid(self) -> None:
-        raw = '```json\n[{"file": "a.tsx", "line": 1, "severity": "warning", "body": "bad"}]\n```'
-        result = _parse_comments_json(raw)
-        assert len(result) == 1
-        assert result[0]["file"] == "a.tsx"
-
-    def test_parse_comments_json_empty(self) -> None:
-        assert _parse_comments_json("```json\n[]\n```") == []
-
-    def test_parse_comments_json_invalid(self) -> None:
-        assert _parse_comments_json("not json at all") == []
-
     def test_deduplicate_findings(self) -> None:
         findings = [
             {"file": "a.tsx", "line": 10, "body": "issue 1"},
@@ -99,10 +87,10 @@ class TestAratu:
     async def test_aratu_returns_valid_risk_analysis(self) -> None:
         result = await aratu_analyze(SAMPLE_DIFF, SAMPLE_MR_INFO)
 
-        assert "overall_risk" in result
-        assert result["overall_risk"] in ("low", "medium", "high")
-        assert "risk_areas" in result
-        assert isinstance(result["risk_areas"], list)
+        assert isinstance(result, AratuAnalysis)
+        assert result.overall_risk in ("low", "medium", "high")
+        assert isinstance(result.risk_areas, list)
+        assert isinstance(result.specialists_needed, list)
 
 
 @pytest.mark.asyncio
@@ -163,9 +151,9 @@ class TestSquadReview:
 
 @pytest.mark.asyncio
 class TestTriageAgent:
-    @patch("pedroclaw.agents.triage.kb_retrieval")
-    async def test_triage_classifies_issue(self, mock_kb: MagicMock) -> None:
-        mock_kb.find_similar = AsyncMock(return_value=[])
+    @patch("pedroclaw.agents.triage.search_knowledge")
+    async def test_triage_classifies_issue(self, mock_search: MagicMock) -> None:
+        mock_search.return_value = []
 
         agent = TriageAgent()
         result = await agent.triage({
