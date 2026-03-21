@@ -26,7 +26,7 @@ Python 3.12 · FastAPI · Celery · Redis · PostgreSQL/pgvector · LiteLLM
 cp .env.example .env
 ```
 
-Edit `.env`:
+Copy and edit `.env` (see [`.env.example`](.env.example) for every variable, including Langfuse):
 
 ```env
 # GitLab — Settings > Access Tokens (scope: api)
@@ -35,15 +35,15 @@ GITLAB_TOKEN=glpat-xxxx
 GITLAB_WEBHOOK_SECRET=pick-a-secret
 
 # LLM (any provider via LiteLLM)
-LLM_MODEL=claude-sonnet-4-6        # or: deepseek/deepseek-chat, gpt-4o, gemini/gemini-2.5-pro
-LLM_API_KEY=sk-ant-xxxx
+LLM_REVIEW_MODEL=claude-sonnet-4-6   # or: deepseek/deepseek-chat, gpt-4o, gemini/gemini-2.5-pro
+LLM_REVIEW_API_KEY=sk-ant-xxxx
 
 # Review engine
-REVIEW_ENGINE=builtin               # builtin | coderabbit | pr_agent
+REVIEW_ENGINE=builtin               # builtin | squad-xi | coderabbit | pr_agent
 
-# Embedding (for knowledge base)
-EMBEDDING_MODEL=text-embedding-3-small
-EMBEDDING_API_KEY=sk-xxxx           # OpenAI key (R$ 0.11/1M tokens)
+# Embedding (for knowledge base) — optional
+# LLM_KB_MODEL=text-embedding-3-small
+# LLM_KB_API_KEY=sk-xxxx
 
 # DB and Redis — no changes needed if using docker-compose
 DATABASE_URL=postgresql+asyncpg://pedroclaw:pedroclaw@localhost:5432/pedroclaw
@@ -56,7 +56,7 @@ REDIS_URL=redis://localhost:6379/0
 docker compose up -d
 ```
 
-This starts: API (port 8000) + Celery Worker + Celery Beat + PostgreSQL/pgvector + Redis
+This starts: API (port 8000) + Celery Worker + Celery Beat + PostgreSQL/pgvector + Redis + Langfuse (UI on port 3000) + ClickHouse + MinIO (see [Local development](#local-development)).
 
 ### 3. Verify
 
@@ -92,6 +92,100 @@ curl -X POST http://localhost:8000/webhooks/gitlab \
   -H "X-Gitlab-Event: Merge Request Hook" \
   -d '{"object_attributes":{"action":"open","iid":1},"project":{"id":123,"path_with_namespace":"test/repo"}}'
 ```
+
+## Local development
+
+### What `docker compose` runs
+
+| Service | Role |
+|---------|------|
+| `api` | FastAPI (`:8000`) |
+| `worker` | Celery worker (MR review, triage, KB) |
+| `beat` | Celery beat |
+| `db` | PostgreSQL 17 + pgvector (`:5432`) |
+| `redis` | Redis (`:6379`) |
+| `langfuse-web` | Langfuse UI (`:3000`) |
+| `langfuse-worker` | Langfuse async processing |
+| `clickhouse` | Langfuse analytics backend |
+| `minio` | S3-compatible storage for Langfuse events |
+
+Convenience: `make run` runs `docker compose up -d --build`; `make stop` runs `docker compose down`.
+
+### Langfuse (LLM observability)
+
+Pedroclaw registers LiteLLM’s `langfuse_otel` callback so completions are sent to Langfuse via OpenTelemetry ([integration](https://langfuse.com/integrations/frameworks/litellm-sdk)).
+
+1. **One-time Postgres database for Langfuse** (if the stack fails to migrate until `langfuse` exists):
+
+   ```bash
+   docker compose exec db psql -U pedroclaw -d postgres -c "CREATE DATABASE langfuse;"
+   ```
+
+2. **Secrets in `.env`** (see [`.env.example`](.env.example)):
+
+   - `LANGFUSE_NEXTAUTH_SECRET` and `LANGFUSE_SALT` — long random strings you choose.
+   - `LANGFUSE_ENABLED=true`
+   - After the UI is up, create **API keys** in Langfuse and set `LANGFUSE_PUBLIC_KEY` and `LANGFUSE_SECRET_KEY`.
+
+3. **Hosts**:
+
+   - With **Docker Compose as written**, `api` and `worker` already receive `LANGFUSE_OTEL_HOST=http://langfuse-web:3000` from `docker-compose.yml`. Your `.env` can keep the same values for consistency.
+   - If you run **only** Postgres/Redis/Langfuse in Docker and run the API **on the host** with `uvicorn`, set `LANGFUSE_HOST` and `LANGFUSE_OTEL_HOST` to `http://localhost:3000`.
+
+4. **UI**: open [http://localhost:3000](http://localhost:3000), sign up (local signup is enabled), then **Settings → API keys** and paste the keys into `.env`. Restart `api` / `worker` if they started before keys were set.
+
+5. **Langfuse Cloud**: point `LANGFUSE_HOST` / `LANGFUSE_OTEL_HOST` to `https://cloud.langfuse.com` (or your region URL from their docs) and use project keys from the cloud UI. You can omit the self-hosted Langfuse services if you do not need them.
+
+6. **Disable**: set `LANGFUSE_ENABLED=false`.
+
+### Skills path (frontend rules)
+
+The worker mounts the frontend repo so Squad XI can load project skills (e.g. `.claude/skills`). By default Compose uses `./frontend` → `/workspace/frontend` inside the worker. Override on the host:
+
+```bash
+export FRONTEND_PATH=/caminho/para/seu/frontend
+docker compose up -d
+```
+
+`FRONTEND_PATH` in settings maps to `frontend_path` ([`config.py`](src/pedroclaw/config.py)).
+
+### Run API and worker without full Compose (optional)
+
+Use this when you want a local Python process while DB/Redis (and optionally Langfuse) still run in Docker:
+
+```bash
+pip install -e ".[dev]"
+# or: uv sync && uv run …
+export $(grep -v '^#' .env | xargs)   # load .env — adjust for your shell if needed
+uvicorn pedroclaw.main:app --reload --host 0.0.0.0 --port 8000
+```
+
+In another terminal:
+
+```bash
+celery -A pedroclaw.tasks.worker:celery_app worker --loglevel=info
+celery -A pedroclaw.tasks.worker:celery_app beat --loglevel=info   # if you need scheduled tasks
+```
+
+Point `DATABASE_URL` / `REDIS_URL` at `localhost` if those services publish ports from Compose.
+
+### Agno AgentOS (separate from Pedroclaw core)
+
+The production app is FastAPI + Celery + LiteLLM. **AgentOS** is Agno’s optional runtime with a web UI and APIs for agents ([Run your AgentOS](https://docs.agno.com/agent-os/run-your-os)). To try it locally alongside this repo:
+
+1. Install the SDK (extras match what you need, e.g. LiteLLM-backed models):
+
+   ```bash
+   pip install "agno[agentos,litellm]"
+   ```
+
+2. Set the provider API key your agents use (for example `OPENAI_API_KEY` or `ANTHROPIC_API_KEY` per Agno docs).
+
+3. Follow the official guide to instantiate and serve an `AgentOS` — see [Agent OS](https://docs.agno.com/agent-os/run-your-os) and [configuration](https://docs.agno.com/agent-os/config).
+
+4. For **traces** with AgentOS + OpenTelemetry, Agno’s docs recommend `opentelemetry-api`, `opentelemetry-sdk`, and `openinference-instrumentation-agno` ([example](https://docs.agno.com/examples/agent-os/tracing/basic-agent-tracing)); you can point OTLP at the same Langfuse or another backend you use for local experiments.
+
+Pedroclaw does not embed AgentOS in the GitLab webhook path; use AgentOS when building or debugging Agno agents separately.
 
 ## Architecture
 
