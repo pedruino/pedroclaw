@@ -8,7 +8,7 @@ from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from pedroclaw.dashboard.models import ReviewLog, TriageLog
-from pedroclaw.knowledge.store import async_session
+from pedroclaw.database import async_session
 
 
 async def create_review_log(

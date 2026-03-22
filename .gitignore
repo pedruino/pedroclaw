@@ -16,3 +16,12 @@ venv/
 *.db
 .coverage
 htmlcov/
+
+# Local TLS / dev certs (never commit)
+ssl/*.pem
+ssl/*.key
+
+# Accidental terminal capture saved as filename "import" at repo root
+/import
+
+uv.lock
